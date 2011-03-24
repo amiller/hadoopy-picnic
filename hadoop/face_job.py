@@ -3,7 +3,6 @@ import Image
 import numpy as np
 import cStringIO as StringIO
 import cv
-import base64
 
 """
 An introductory example of hadoopy using OpenCV face detection.
@@ -23,9 +22,11 @@ haar_scale = 1.2
 min_neighbors = 2
 haar_flags = 0
 
+
 _desired_size = 320*240   # A desired image size in pixels
 _cascade = cv.Load("haarcascade_frontalface_alt.xml")
 _face_size = 64
+_bin_count = 10  # The number of (normalized) bins in each dimension
 
 
 def mapper(key, value):
@@ -63,57 +64,41 @@ def mapper(key, value):
         resized = np.empty((_face_size, _face_size), 'u1')
         cv.Resize(face, resized)
 
-        # Find the normalized coordinates
-        nx, ny = float(x + w/2)/width, float(y + h/2)/height
-        yield base64.b64encode(key),(resized, (nx, ny))
+        # Find the binned coordinates
+        nx = (x + w/2)*_bin_count/grey.shape[1]
+        ny = (y + h/2)*_bin_count/grey.shape[0]
+        
+        yield (nx,ny), resized
 
 
-def combiner(key, values):
+def reducer(key, values):
     """
-    TODO explain here, right now combiner does nothing interesting
+    The mapper computes the face for each bin
     Args:
 
     Yields:
 
     """
-    # TODO combines some of the mean faces
-    for v in values:
-        yield key, v
-
-
-class Reducer(object):
-
-    def __init__(self):
-        self.sum_face = np.zeros((_face_size, _face_size))
-        self.sum_x = 0
-        self.sum_y = 0
-        self.face_counter = 0
-
-    def _image_to_str(self, img):
+    def _image_to_str(img):
         out = StringIO.StringIO()
         img.save(out, 'JPEG')
         out.seek(0)
         return out.read()
 
-    def reduce(self, key, values):
-        """
-        TODO right now the mapper only computes the mean_face but we should
-        make it do something more interesting
-        Args:
+    x, y = key
 
-        Yields:
+    sum_face = np.zeros((_face_size, _face_size))
+    face_counter = 0
 
-        """
-        for (face, (x, y)) in values:
-            self.sum_x += x
-            self.sum_y += y
-            self.sum_face += face
-            self.face_counter += 1
-            filename = 'faces/%s.jpg' % str(key)
-            yield filename, self._image_to_str(Image.fromarray(face))
+    for (face) in values:
+        sum_face += face
+        face_counter += 1
 
-        mean_face = (self.sum_face/self.face_counter).astype('u1')
-        yield 'mean_face.jpg', self._image_to_str(Image.fromarray(mean_face))
+    mean_face = (sum_face/face_counter).astype('u1')
+    yield ('mean_%d_%d.jpg' % (x, y),
+           _image_to_str(Image.fromarray(mean_face)))
+    yield (x, y), face_counter
+
 
 if __name__ == '__main__':
-    hadoopy.run(mapper, Reducer, combiner)
+    hadoopy.run(mapper, reducer)
