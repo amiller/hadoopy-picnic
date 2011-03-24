@@ -37,10 +37,10 @@ def mapper(key, value):
 
     Yields:
         Tuple of (key, value) where
-        key: Unused
-        value: (face, (x, y)) where face is a numpy array for a detected
-            face patch  (_face_size, _face_size) and x,y is the normalized
-            location of the face center in the image (between 0 and 1)
+        key: (x, y), a pair of normalized bin coordinates
+                 (between 0 and _bin_count-1)
+        value: face,  a numpy array containing the greyscale value of
+            a detected face patch, (_face_size, _face_size)
     """
     try:
         image = Image.open(StringIO.StringIO(value))
@@ -67,17 +67,21 @@ def mapper(key, value):
         # Find the binned coordinates
         nx = (x + w/2)*_bin_count/grey.shape[1]
         ny = (y + h/2)*_bin_count/grey.shape[0]
-        
+
         yield (nx,ny), resized
 
 
 def reducer(key, values):
     """
-    The mapper computes the face for each bin
+    The mapper computes the mean face for each bin, and the total count
+    of detected faces in each bin.
     Args:
-
+        key: (x, y) bin coordinates between 0 and _bin_count-1
+        values: an array of face patches (face_size, face_size),
+                dtype=np.uint8, greyscale
     Yields:
-
+        'mean_x_y.jpg', mean_face: the mean face, as jpeg data
+        (x,y), count: the number of faces for bin x,y
     """
     def _image_to_str(img):
         out = StringIO.StringIO()
@@ -90,7 +94,7 @@ def reducer(key, values):
     sum_face = np.zeros((_face_size, _face_size))
     face_counter = 0
 
-    for (face) in values:
+    for face in values:
         sum_face += face
         face_counter += 1
 
